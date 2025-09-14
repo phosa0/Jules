@@ -3,13 +3,24 @@
   import { invoke } from '@tauri-apps/api/core';
   import { fly } from 'svelte/transition';
 
+  // --- Type Definitions for Backend Data ---
+  interface JailbreakMethod {
+    name: string;
+    description: string;
+  }
+
+  interface JailbreakCategory {
+    name: string;
+    methods: JailbreakMethod[];
+  }
+
   // --- State Management ---
   let aiModels = $state<string[]>([]);
-  let jailbreakMethods = $state<string[]>([]);
+  let jailbreakCategories = $state<JailbreakCategory[]>([]);
   let isLoading = $state(true);
 
   let selectedModel = $state('');
-  let selectedMethod = $state('');
+  let selectedMethod = $state(''); // This will now just be the method name string
   let customRestriction = $state('');
   let generatedPrompt = $state("");
   let errorMessage = $state('');
@@ -19,20 +30,20 @@
   onMount(async () => {
     isLoading = true;
     try {
-      // Stagger the fetching for a nicer loading effect
       const modelsPromise = invoke<string[]>('get_ai_models');
-      const methodsPromise = invoke<string[]>('get_jailbreak_methods');
+      const categoriesPromise = invoke<JailbreakCategory[]>('get_jailbreak_methods');
 
-      const [models, methods] = await Promise.all([modelsPromise, methodsPromise]);
+      const [models, categories] = await Promise.all([modelsPromise, categoriesPromise]);
 
       aiModels = models;
       if (aiModels.length > 0) {
         selectedModel = aiModels[0];
       }
 
-      jailbreakMethods = methods;
-      if (jailbreakMethods.length > 0) {
-        selectedMethod = jailbreakMethods[0];
+      jailbreakCategories = categories;
+      // Set a default selection
+      if (categories.length > 0 && categories[0].methods.length > 0) {
+        selectedMethod = categories[0].methods[0].name;
       }
     } catch (e: any) {
       errorMessage = `Error fetching initial data: ${e.toString()}`;
@@ -42,7 +53,7 @@
     }
   });
 
-  // --- Core Functions ---
+  // --- Core Functions (handleGenerate and handleCopy are unchanged) ---
   async function handleGenerate() {
     errorMessage = '';
     if (!customRestriction) {
@@ -105,15 +116,28 @@
       <div class="skeleton skeleton-input"></div>
       <div class="skeleton skeleton-button"></div>
     {:else}
-      <select bind:value={selectedMethod}>
-        {#each jailbreakMethods as method, i}
-          <option value={method} transition:fly={{ y: 20, duration: 300, delay: i * 30 }}>
-            {method}
-          </option>
+      <div class="method-list">
+        {#each jailbreakCategories as category}
+          <div class="category">
+            <h3 class="category-title">{category.name}</h3>
+            <ul class="method-items">
+              {#each category.methods as method, i}
+                <li
+                  class="method-item"
+                  class:selected="{selectedMethod === method.name}"
+                  on:click={() => selectedMethod = method.name}
+                  transition:fly={{ y: 20, duration: 300, delay: i * 30 }}
+                >
+                  <strong>{method.name}</strong>
+                  <p>{method.description}</p>
+                </li>
+              {/each}
+            </ul>
+          </div>
         {/each}
-      </select>
+      </div>
 
-      <div>
+      <div style="margin-top: auto;"> <!-- Pushes following elements to the bottom -->
         <label for="custom-restriction">Custom Restriction to Bypass</label>
         <input
           type="text"
@@ -122,9 +146,10 @@
           bind:value={customRestriction}
           class:error-shake={shouldShake}
         />
+        <button type="button" on:click={handleGenerate} style="width: 100%; margin-top: 10px;">
+          Generate Prompt
+        </button>
       </div>
-
-      <button type="button" on:click={handleGenerate}>Generate Prompt</button>
     {/if}
     {#if errorMessage}
       <p style="color: #ff4d4d; font-size: 0.9rem; margin-top: 10px;">{errorMessage}</p>
